@@ -1,3 +1,268 @@
-﻿@page "/"
-<h1>Flagpole</h1>
+@page "/"
+@using System.Globalization
+@inject AppState S
 
+<PageTitle>Flagpole: feature flags with targeting and safe rollouts</PageTitle>
+
+@{
+    var snapshot = S.Store.Snapshot;
+    var flags = snapshot.Flags.Values.OrderBy(f => f.Key).ToList();
+}
+
+<header class="top">
+    <div>
+        <h1>Flagpole</h1>
+        <p class="tag">Ship dark, roll out slowly, switch off instantly. A feature-flag engine in C# that always tells you why a user got what they got.</p>
+    </div>
+    <dl class="stats">
+        <div><dt>Flags</dt><dd>@flags.Count</dd></div>
+        <div><dt>Segments</dt><dd>@snapshot.Segments.Count</dd></div>
+        <div><dt>Version</dt><dd>@snapshot.Version</dd></div>
+        <div><dt>Environment</dt><dd>@S.Environment</dd></div>
+    </dl>
+</header>
+
+<main>
+    <section class="guide" aria-label="How to try it">
+        <h2>Try this (3 minutes)</h2>
+        <ol>
+            <li><b>Playground:</b> change the user and read the <b>Why</b> column. Set the user id to <code>staff-ava</code> and <b>new-checkout</b> turns on through a rule. Set seats to 2 and it turns off through a different rule.</li>
+            <li><b>Rollout:</b> drag the slider from 20% to 60%. Users only ever get <b>added</b>; nobody who had the feature loses it. That is what stable bucketing guarantees.</li>
+            <li><b>Flags:</b> press <b>Kill switch</b> on payments-v2. Apple Pay depends on it, so it goes off too, with the reason shown.</li>
+            <li><b>Client:</b> take the flag service <b>down</b>, change a flag, and see the app keep serving the last known values. Bring it back and refresh.</li>
+            <li><b>Safety:</b> on the Flags tab, try saving a rollout that adds up to 90%. It is refused before it can ship.</li>
+        </ol>
+    </section>
+
+    @if (S.Message.Length > 0)
+    {
+        <div class="toast @(S.MessageOk ? "ok" : "bad")" role="status">@S.Message</div>
+    }
+
+    <nav class="tabs" aria-label="Sections">
+        @foreach (var t in new[] { "Playground", "Rollout", "Flags", "Client", "History" })
+        {
+            var name = t;
+            <button class="tab @(_tab == name ? "on" : "")" @onclick="() => _tab = name">@name</button>
+        }
+    </nav>
+
+    @if (_tab == "Playground")
+    {
+        <div class="two">
+            <section class="card">
+                <h2>The user</h2>
+                <div class="selects">
+                    <label>User id<input @bind="S.UserId" spellcheck="false" /></label>
+                    <label>Plan
+                        <select @bind="S.Plan"><option>free</option><option>pro</option><option>team</option></select>
+                    </label>
+                    <label>Country
+                        <select @bind="S.Country"><option>US</option><option>CA</option><option>DE</option><option>PK</option></select>
+                    </label>
+                    <label>Seats<input type="number" @bind="S.Seats" /></label>
+                    <label>Company<input @bind="S.Company" spellcheck="false" /></label>
+                    <label>Environment
+                        <select @bind="S.Environment"><option>prod</option><option>dev</option></select>
+                    </label>
+                </div>
+                <p class="hint">Try <code>staff-ava</code> or <code>user-7</code> (a beta tester) as the user id. Simulated time: @S.Now.UtcDateTime.ToString("MMM d HH:mm", CultureInfo.InvariantCulture) UTC.</p>
+                <div class="actions wrap">
+                    <button class="btn" @onclick="() => S.Wait(TimeSpan.FromHours(24))">+1 day</button>
+                    <button class="btn" @onclick="() => S.Wait(TimeSpan.FromHours(72))">+3 days</button>
+                    <button class="btn ghost" @onclick="S.Reset">Reset demo</button>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>What this user gets</h2>
+                <div class="tablewrap">
+                    <table>
+                        <thead><tr><th>Flag</th><th>Value</th><th>Why</th></tr></thead>
+                        <tbody>
+                            @foreach (var f in flags)
+                            {
+                                var e = S.Store.Evaluate(S.Environment, f.Key, S.Context);
+                                <tr>
+                                    <td><b>@f.Key</b></td>
+                                    <td><span class="chip @ChipClass(e)">@(e.Variant ?? "none")</span> <span class="mono">@e.Value</span></td>
+                                    <td class="detail"><span class="chip r-@e.Reason.ToString().ToLowerInvariant()">@e.Reason</span> @e.Detail</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    }
+    else if (_tab == "Rollout")
+    {
+        var flag = snapshot.Flags["new-checkout"];
+        var users = Enumerable.Range(0, 400).Select(i => "user-" + i).ToList();
+        var onNow = users.Where(u => S.Store.Evaluate("prod", "new-checkout", new Context(u, new Dictionary<string, string> { ["seats"] = "50" })).Variant == "on").ToHashSet();
+        var added = onNow.Except(_previousOn).Count();
+        var removed = _previousOn.Except(onNow).Count();
+        <section class="card">
+            <h2>new-checkout: everyone else gets this percentage</h2>
+            <label class="field">Rollout: @_percent%
+                <input type="range" min="0" max="100" step="5" value="@_percent" @onchange="OnPercent" />
+            </label>
+            <p class="hint">400 sample users (each with 50 seats, so they skip the small-account rule). <b>@onNow.Count</b> have the feature. Since the last change: <b class="ok">@added gained it</b>, <b class="@(removed == 0 ? "ok" : "bad")">@removed lost it</b>.</p>
+            <div class="grid" aria-label="Users with and without the feature">
+                @foreach (var u in users)
+                {
+                    <i class="@(onNow.Contains(u) ? "u on" : "u")" title="@u"></i>
+                }
+            </div>
+            <p class="hint">Each user is hashed into one of 10,000 buckets using the flag name and their id. The same user always lands in the same bucket, so raising the percentage only widens the range. Different flags use different buckets, so two 50% rollouts overlap by about a quarter, not a half.</p>
+        </section>
+    }
+    else if (_tab == "Flags")
+    {
+        <section class="card">
+            <h2>Flags</h2>
+            <div class="tablewrap">
+                <table>
+                    <thead><tr><th>Flag</th><th>Prod</th><th>Rules</th><th>Depends on</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var f in flags)
+                        {
+                            var key = f.Key;
+                            var prod = f.Environments["prod"];
+                            <tr>
+                                <td><b>@f.Key</b><div class="hint">@f.Description</div></td>
+                                <td><span class="chip @(prod.Enabled ? "r-rulematch" : "r-off")">@(prod.Enabled ? "On" : "Killed")</span></td>
+                                <td class="mono">@prod.Rules.Count</td>
+                                <td class="mono">@(prod.Prerequisites.Count == 0 ? "-" : string.Join(", ", prod.Prerequisites.Select(p => p.Flag)))</td>
+                                <td class="detail">
+                                    <button class="btn small @(prod.Enabled ? "" : "primary")" @onclick="() => Toggle(key, !prod.Enabled)">@(prod.Enabled ? "Kill switch" : "Switch back on")</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="card narrow">
+            <h2>Try saving something invalid</h2>
+            <p class="hint">These are refused before they can ship, and nothing changes.</p>
+            <div class="actions wrap">
+                <button class="btn" @onclick="BadWeights">Rollout adding up to 90%</button>
+                <button class="btn" @onclick="BadLoop">Make a prerequisite loop</button>
+                <button class="btn" @onclick="BadDelete">Delete a flag others need</button>
+            </div>
+        </section>
+    }
+    else if (_tab == "Client")
+    {
+        <section class="card">
+            <div class="clockrow">
+                <div>
+                    <div class="lab">The app's flag client (polls every 30 seconds)</div>
+                    <div class="clock">v@(S.Client.Version?.ToString() ?? "?")</div>
+                </div>
+                <span class="pill @(S.Client.IsStale ? "down" : "up")">@(S.Client.IsStale ? "Serving stale flags" : "Up to date")</span>
+            </div>
+            <div class="actions wrap">
+                <button class="btn @(S.ServiceSource.Down ? "primary" : "")" @onclick="ToggleService">@(S.ServiceSource.Down ? "Bring the flag service back" : "Take the flag service down")</button>
+                <button class="btn" @onclick="() => S.Client.Refresh()">Refresh now</button>
+                <button class="btn" @onclick="() => S.Wait(TimeSpan.FromSeconds(30))">+30 seconds</button>
+                <button class="btn" @onclick="() => S.Wait(TimeSpan.FromMinutes(2))">+2 minutes</button>
+            </div>
+            <p class="hint">Service: <b>@(S.ServiceSource.Down ? "down" : "up")</b> at version @snapshot.Version. Failures so far: @S.Client.Failures@(S.Client.LastError is null ? "" : ". Last error: " + S.Client.LastError)</p>
+        </section>
+
+        <section class="card">
+            <h2>What the app serves right now</h2>
+            <div class="tablewrap">
+                <table>
+                    <thead><tr><th>Flag</th><th>App sees</th><th>Service says</th></tr></thead>
+                    <tbody>
+                        @foreach (var f in flags)
+                        {
+                            var app = S.Client.Evaluate(f.Key, S.Context);
+                            var live = S.Store.Evaluate("prod", f.Key, S.Context);
+                            <tr>
+                                <td><b>@f.Key</b></td>
+                                <td><span class="chip @ChipClass(app)">@(app.Variant ?? "default")</span></td>
+                                <td><span class="chip @ChipClass(live)">@live.Variant</span> @(app.Variant != live.Variant ? "differs until the next refresh" : "")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <p class="hint">The client never throws and never blocks the app: before its first fetch it serves the defaults your code supplied, and during an outage it keeps the last values it had. Use the kill switches on the Flags tab to change something while the service is down.</p>
+        </section>
+    }
+    else
+    {
+        <div class="two">
+            <section class="card">
+                <h2>History</h2>
+                @foreach (var a in S.Store.Audit.OrderByDescending(a => a.Version).Take(20))
+                {
+                    <div class="act"><span class="mono">v@(a.Version)</span> <span class="chip">@a.Action</span> <b>@a.Target</b> @a.Summary <span class="hint">by @a.Actor</span></div>
+                }
+            </section>
+            <section class="card">
+                <h2>Export as JSON</h2>
+                <p class="hint">Flags as code: reviewable in a pull request and importable back, with the whole import validated as one unit.</p>
+                <textarea readonly rows="16" class="json">@FlagSerializer.ToJson(snapshot)</textarea>
+            </section>
+        </div>
+    }
+</main>
+
+<footer class="foot">
+    <span>C# engine, 124 tests. The same code runs in your browser with Blazor WebAssembly.</span>
+    <a href="https://github.com/hamzamehmood46/feature-flags-dotnet">Source on GitHub</a>
+</footer>
+
+@code {
+    private string _tab = "Playground";
+    private int _percent = 20;
+    private HashSet<string> _previousOn = [];
+
+    private static string ChipClass(Evaluation e) => e.Variant is "on" ? "s-succeeded" : e.Variant is null or "off" ? "s-skipped" : "s-running";
+
+    private void OnPercent(ChangeEventArgs e) => SetPercent(int.Parse(e.Value?.ToString() ?? "0"));
+
+    private void SetPercent(int percent)
+    {
+        var users = Enumerable.Range(0, 400).Select(i => "user-" + i);
+        _previousOn = users.Where(u => S.Store.Evaluate("prod", "new-checkout", new Context(u, new Dictionary<string, string> { ["seats"] = "50" })).Variant == "on").ToHashSet();
+        _percent = percent;
+        var flag = S.Store.Snapshot.Flags["new-checkout"];
+        var prod = flag.Environments["prod"] with
+        {
+            Fallthrough = new Serve(null, [new WeightedVariant("on", percent * 100), new WeightedVariant("off", 10_000 - percent * 100)]),
+        };
+        S.Act(() => S.Store.UpsertFlag(flag with { Environments = new Dictionary<string, EnvironmentConfig>(flag.Environments) { ["prod"] = prod } }, "you"), $"Rollout set to {percent}%.");
+    }
+
+    private void Toggle(string key, bool enabled) =>
+        S.Act(() => S.Store.SetEnabled(key, "prod", enabled, "you"), enabled ? $"{key} switched back on." : $"{key} killed in prod.");
+
+    private void ToggleService()
+    {
+        S.ServiceSource.Down = !S.ServiceSource.Down;
+        S.Act(() => { }, S.ServiceSource.Down ? "The flag service is down." : "The flag service is back.");
+    }
+
+    private void BadWeights()
+    {
+        var flag = S.Store.Snapshot.Flags["new-checkout"];
+        var prod = flag.Environments["prod"] with { Fallthrough = new Serve(null, [new WeightedVariant("on", 4000), new WeightedVariant("off", 5000)]) };
+        S.Act(() => S.Store.UpsertFlag(flag with { Environments = new Dictionary<string, EnvironmentConfig>(flag.Environments) { ["prod"] = prod } }, "you"), "Saved.");
+    }
+
+    private void BadLoop()
+    {
+        var flag = S.Store.Snapshot.Flags["payments-v2"];
+        var prod = flag.Environments["prod"] with { Prerequisites = [new Prerequisite("apple-pay", "on")] };
+        S.Act(() => S.Store.UpsertFlag(flag with { Environments = new Dictionary<string, EnvironmentConfig>(flag.Environments) { ["prod"] = prod } }, "you"), "Saved.");
+    }
+
+    private void BadDelete() => S.Act(() => S.Store.DeleteFlag("payments-v2", "you"), "Deleted.");
+}

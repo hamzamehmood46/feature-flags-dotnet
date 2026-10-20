@@ -1,5 +1,5 @@
-﻿import json, subprocess, sys, shutil, re
-cfg = json.load(open('.ci/mutations.json'))
+import json, subprocess, sys, shutil, re
+cfg = json.load(open('.ci/mutations.json', encoding='utf-8-sig'))
 tests = sys.argv[1]
 print("MUTATION RUN")
 for m in cfg:
