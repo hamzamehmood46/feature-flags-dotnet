@@ -177,4 +177,25 @@ public class RolloutTests
         Assert.Equal(0, outsiders);
         Assert.InRange(insiders * 100.0 / 4000, 47, 53);
     }
+
+    [Fact]
+    public void A_user_exactly_on_the_boundary_belongs_to_the_next_share_not_the_previous_one()
+    {
+        // With 30% "on", buckets 0-2999 are "on" and 3000 is the first "off" bucket.
+        var snapshot = Rollout(30);
+        string? onTheEdge = null;
+        string? justInside = null;
+        for (var i = 0; i < 2_000_000 && (onTheEdge is null || justInside is null); i++)
+        {
+            var user = "edge-" + i;
+            var bucket = Bucketing.Bucket("new-checkout", "new-checkout", user);
+            onTheEdge ??= bucket == 3000 ? user : null;
+            justInside ??= bucket == 2999 ? user : null;
+        }
+
+        Assert.NotNull(onTheEdge);
+        Assert.NotNull(justInside);
+        Assert.Equal("off", F.Eval(snapshot, "new-checkout", onTheEdge!).Variant);
+        Assert.Equal("on", F.Eval(snapshot, "new-checkout", justInside!).Variant);
+    }
 }
