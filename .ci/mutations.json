@@ -1,0 +1,80 @@
+﻿[
+    {
+        "label":  "kill switch ignored",
+        "new":  "if (false)",
+        "old":  "if (!config.Enabled)",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "bucket ignores flag key (rollouts overlap)",
+        "new":  "$\"{value}\"",
+        "old":  "$\"{salt}.{flagKey}.{value}\"",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "off-by-one in rollout edge",
+        "new":  "if (bucket \u003c= cumulative)",
+        "old":  "if (bucket \u003c cumulative)",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "rule needs only one condition",
+        "new":  "rule.Conditions.Any(c =\u003e Matches(snapshot, c, context))",
+        "old":  "rule.Conditions.All(c =\u003e Matches(snapshot, c, context))",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "prerequisites ignored",
+        "new":  "if (false)",
+        "old":  "if (required.Variant != prerequisite.Variant)",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "schedule end off by one",
+        "new":  "now \u003e end",
+        "old":  "now \u003e= end",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "missing attribute matches NotEquals",
+        "new":  "        if (actual is null)\n        {\n            return condition.Op is Operator.NotEquals or Operator.NotIn;\n        }",
+        "old":  "        if (actual is null)\n        {\n            return false;\n        }",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "exclusions ignored in segments",
+        "new":  "if (false)\n        {\n            return false;\n        }",
+        "old":  "if (segment.Excluded.Contains(context.UserId, StringComparer.OrdinalIgnoreCase))\n        {\n            return false;\n        }",
+        "file":  "src/Flagpole.Engine/Evaluator.cs"
+    },
+    {
+        "label":  "rollout weights not checked",
+        "new":  "else if (false)",
+        "old":  "else if (rollout.Sum(w =\u003e w.Weight) != Bucketing.Buckets)",
+        "file":  "src/Flagpole.Engine/FlagStore.cs"
+    },
+    {
+        "label":  "prerequisite loops allowed",
+        "new":  "if (false)",
+        "old":  "if (HasCycle(flags, flag.Key, environment))",
+        "file":  "src/Flagpole.Engine/FlagStore.cs"
+    },
+    {
+        "label":  "flags saved without validation",
+        "new":  "var flags = new Dictionary\u003cstring, Flag\u003e(_snapshot.Flags) { [flag.Key] = next };",
+        "old":  "var flags = new Dictionary\u003cstring, Flag\u003e(_snapshot.Flags) { [flag.Key] = next };\n            Validate(flags, _snapshot.Segments, flag.Key);",
+        "file":  "src/Flagpole.Engine/FlagStore.cs"
+    },
+    {
+        "label":  "client drops flags on outage",
+        "new":  "                Failures++;\n                LastError = ex.Message;\n                _snapshot = null;",
+        "old":  "                Failures++;\n                LastError = ex.Message;",
+        "file":  "src/Flagpole.Engine/FlagClient.cs"
+    },
+    {
+        "label":  "older snapshot overwrites newer",
+        "new":  "false",
+        "old":  "(_snapshot is not null \u0026\u0026 fetched.Version \u003c _snapshot.Version)",
+        "file":  "src/Flagpole.Engine/FlagClient.cs"
+    }
+]
